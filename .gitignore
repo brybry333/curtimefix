@@ -1,0 +1,10 @@
+third_party/source-sdk-2013/
+win/build/
+dist/
+__pycache__/
+*.o
+*.so
+*.dll
+*.exe
+*.lib
+*.bak*
