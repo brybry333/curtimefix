@@ -134,8 +134,9 @@ off, `CURTIMEFIX_TRACE=1` prints one line per frame to stderr.
 
 ## Limits
 
-- Measured up to 5.6 h of map time. Past 65,536 s (18.2 h) the float step is 7.8 ms, too coarse to recover exact
-  times reliably at any tickrate, so curtimefix is expected to stop working there. That's untested.
+- Measured in game up to 5.6 h of map time. Exact sample times are recovered up to 131,072 s (36.4 h) at 66 and
+  100 tick (`make test` checks it); past that the float step is longer than a tick, and samples are left as the
+  game stored them, like stock CS:S.
 - When the server's position history contains a teleport, the game blends across it for one tick (a short streak).
   Stock CS:S does the same; curtimefix doesn't change it.
 - The 1.1 changes are shared code and the Windows build has them, but 1.1 hasn't been run on Windows yet. 1.0 was
@@ -152,7 +153,7 @@ cd third_party/source-sdk-2013 && git checkout be57e3d01ac7d7aa6a2cacbfef187c0b4
 git sparse-checkout set src/common src/public src/tier1
 ```
 
-**Linux:** `make && make check-glibc` in `linux/` builds `libcurtimefix.so`. `check-glibc` makes sure it still
+**Linux:** `make && make check-glibc` in `linux/` builds `libcurtimefix.so`; `make test` checks the tick recovery. `check-glibc` makes sure it still
 loads on the Steam runtime's glibc 2.31 and exports nothing.
 
 **Windows** (cross-compiled on Linux): `win/build.sh` builds `curtimefix.dll` (clang-cl, MSVC ABI) and
@@ -179,6 +180,15 @@ which part moved.
 | `tools/probe2/` | `probe2.so` (`make` there; `LD_PRELOAD` with `PROBE2_DIR=<dir>`) records the camera every frame and runs console commands appended to `<dir>/ctl`; `analyze.py`, `within_tick.py` and `yaw.py` read its `rec.bin` |
 
 ## Changes
+
+**1.2:**
+- Linux: curtimefix stayed off after a game restart through `execve`, which bhoptools does when it installs an
+  update. The restarted game kept the "already loaded" mark in its environment, and its process name became `exe`.
+  The mark now belongs to one exec, and the game is recognised by its binary.
+- Past 65,536 s on 100-tick servers, samples stored after a prediction reset could be given a time one tick off.
+  Sample times are now matched bit for bit against the two forms the game stores; when two ticks fit, the sample is
+  left as stored. `tools/test_ticktime.cpp` checks this up to 39 h.
+- Removed two unused debug switches.
 
 **1.1** (found with `tools/probe2` and the reworked selftest on a dedicated server):
 - On a dedicated server, the render-time half of the fix never ran. `gpGlobals->tickcount` there isn't the tick

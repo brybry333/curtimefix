@@ -8,3 +8,4 @@ __pycache__/
 *.exe
 *.lib
 *.bak*
+linux/test_ticktime

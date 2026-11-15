@@ -3,6 +3,7 @@
 # Make can't handle spaces: clone somewhere without any in the path.
 #   make               build libcurtimefix.so
 #   make check-glibc   the Steam runtime has glibc 2.31
+#   make test          tick_time() against the float times the game stores, at map ages up to 39 h
 SDK      := ../third_party/source-sdk-2013/src
 SRC      := ../src
 CXX      ?= g++
@@ -24,12 +25,15 @@ cmd.o: $(SRC)/cmd.cpp $(SRC)/ctf.h
 %.o: $(SRC)/%.cpp $(SRC)/ctf.h
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
+test: ../tools/test_ticktime.cpp $(SRC)/fix.cpp $(SRC)/ctf.h
+	$(CXX) $(CXXFLAGS) -o test_ticktime $< && ./test_ticktime
+
 clean:
-	rm -f libcurtimefix.so *.o
+	rm -f libcurtimefix.so test_ticktime *.o
 
 check-glibc: libcurtimefix.so
 	@v=$$(objdump -T libcurtimefix.so | grep -o 'GLIBC_[0-9.]*' | sort -Vu | tail -1); echo "highest glibc symbol: $$v"; \
 	case "$$v" in GLIBC_2.[0-9]|GLIBC_2.[0-9].*|GLIBC_2.[12][0-9]|GLIBC_2.[12][0-9].*|GLIBC_2.3[01]) ;; *) echo "too new"; exit 1 ;; esac
 	@e=$$(nm -D --defined-only libcurtimefix.so | grep -v ' [AB] _\|_edata\|_end\|__bss_start' | wc -l); echo "exported symbols: $$e"; [ $$e -eq 0 ]
 
-.PHONY: clean check-glibc
+.PHONY: clean check-glibc test

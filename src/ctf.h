@@ -3,7 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 
-#define CTF_VERSION "1.1"
+#define CTF_VERSION "1.2"
 
 struct Range { uintptr_t lo, hi; };
 
@@ -29,7 +29,6 @@ bool plat_claim();                                         // first copy in this
 bool plat_thread(void *(*fn)(void *));
 void plat_sleep_ms(int ms);
 double plat_now();
-void plat_echo_console();                                  // CURTIMEFIX_ECHO_CONSOLE=1 (Linux): console → stderr
 
 // ---- logging (fix.cpp)
 void say(const char *fmt, ...);

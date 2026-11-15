@@ -130,14 +130,25 @@ static bool gate(float t, Gate *g)
     return false;
 }
 
-// a stored time that is a tick multiple (within one float step: prediction resets store fl(fl(t*I) - I))
+// a stored time that is a tick multiple. The game writes fl(j*I), and prediction resets fl(fl((j+1)*I) - I): those
+// are matched bit for bit; failing that, within one float step of a tick still counts. Two ticks fitting (past 18 h
+// at 100 tick the step nears a tick) = left as stored. tools/test_ticktime.cpp checks this.
 static inline bool tick_time(float ct, const Gate &g, double *ex)
 {
     double jd = nearbyint((double)ct / g.I);
     if (!(fabs(jd) < 16777216.0)) return false;
-    volatile float e = (float)jd * (float)g.I;
-    if (e == ct || nextafterf(e, INFINITY) == ct || nextafterf(e, -INFINITY) == ct) { *ex = jd * g.I; return true; }
-    return false;
+    float If = (float)g.I;
+    double exact = 0, fit = 0;
+    int nexact = 0, nfit = 0;
+    for (double j = jd - 1; j <= jd + 1; j++) {
+        volatile float a = (float)j * If, b = (float)(j + 1) * If;
+        b = b - If;
+        if (a == ct || b == ct) { nexact++; exact = j; }
+        if (a == ct || nextafterf(a, INFINITY) == ct || nextafterf(a, -INFINITY) == ct) { nfit++; fit = j; }
+    }
+    if (nexact ? nexact > 1 : nfit != 1) return false;
+    *ex = (nexact ? exact : fit) * g.I;
+    return true;
 }
 
 // ---------------------------------------------------------------- shadow: exact times of render-time samples
@@ -435,9 +446,6 @@ static int netvar_in(const RecvTable_ *t, const char *var, int depth)
     if (!t || depth > 10) return -1;
     for (int i = 0; i < t->nprops; i++) {
         const RecvProp_ &p = t->props[i];
-        if (p.name && getenv("CURTIMEFIX_NETVAR_DEBUG") && strstr(p.name, var))
-            say("netvar %s in %s: '%s' type %d offset %#x table %p arrayprop %p", var, t->name ? t->name : "?", p.name, p.type,
-                p.offset, (void *)p.table, p.arrayprop);
         if (p.name && !strcmp(p.name, var)) {
             // RecvPropArray3: a table at offset 0 whose elements "000", "001" ... carry the real offsets
             if (p.type == DPT_DataTable && p.table && p.table->nprops > 0) return p.offset + p.table->props[0].offset;
@@ -559,7 +567,7 @@ struct Meter {
     // of the gun's distance from the player
     double n, s, ss, frozen, jit;
     double gn, gs, gss;
-    double cyc_prev, cn, cs, css, cjit, crprev, cfrozen;   // gun animation: cycle advance per second of game time
+    double cyc_prev, cn, cs, cjit, crprev, cfrozen;   // gun animation: cycle advance per second of game time
     int canim;
 };
 static Meter g_m;
@@ -631,7 +639,7 @@ static void meter_frame()
             else if (dc != 0) m.canim = 0;   // wrapped / new sequence
             if (m.canim > 0 && dc >= 0 && dc < 0.2 && rate < 50) {
                 if (dc == 0) { m.canim--; m.cfrozen++; }
-                m.cn++; m.cs += rate; m.css += rate * rate;
+                m.cn++; m.cs += rate;
                 if (m.crprev >= 0) m.cjit += fabs(rate - m.crprev);
                 m.crprev = rate;
             } else m.crprev = -1;
@@ -658,8 +666,7 @@ static void meter_print()
         say("meter: gun offset change %.3f u/s mean, %.3f sd (smaller = steadier gun; compare 0 vs 1 at the same map age)", gm, gsd);
     } else if (m.n >= 30) say("meter: gun not seen (r_drawviewmodel 0, or no weapon)");
     if (m.cn > 30) {
-        double cm = m.cs / m.cn, csd = sqrt(fmax(0, m.css / m.cn - cm * cm));
-        (void)csd;
+        double cm = m.cs / m.cn;
         say("meter: gun animation %.0f frames, %.4f cycles/s, frame-to-frame %.3f%%, frozen %.2f%%", m.cn, cm,
             100 * m.cjit / (m.cn * cm), 100 * m.cfrozen / m.cn);
     }
@@ -750,7 +757,6 @@ static void h_FSN(void *self, int stage)
     t_main = true;
     if (!g_installed) {
         g_installed = true;
-        plat_echo_console();
         if (!install()) g_on = false;
         if (!cmd_register()) say("console command not registered (the fix still works)");   // main thread: the cvar list isn't thread-safe
     }

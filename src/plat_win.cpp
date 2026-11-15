@@ -166,6 +166,4 @@ bool plat_thread(void *(*fn)(void *))
 }
 
 void plat_sleep_ms(int ms) { Sleep((DWORD)ms); }
-
-void plat_echo_console() {}
 #endif

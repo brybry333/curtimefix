@@ -10,6 +10,7 @@
 #include <link.h>
 #include <pthread.h>
 #include <string>
+#include <sys/auxv.h>
 #include <sys/mman.h>
 #include <unistd.h>
 
@@ -169,9 +170,13 @@ bool plat_make_rx(void *p, size_t size) { return mprotect(p, size, PROT_READ | P
 
 bool plat_in_game()
 {
-    char comm[64] = {0};
-    if (FILE *f = fopen("/proc/self/comm", "r")) { if (!fgets(comm, sizeof comm, f)) comm[0] = 0; fclose(f); }
-    return strstr(comm, "cstrike_linux64") != nullptr;
+    // the binary, not /proc/self/comm: after execve("/proc/self/exe") (bhoptools' update restart) comm is "exe"
+    char exe[4096];
+    ssize_t n = readlink("/proc/self/exe", exe, sizeof exe - 1);
+    if (n <= 0) return false;
+    exe[n] = 0;
+    const char *base = strrchr(exe, '/');
+    return !strcmp(base ? base + 1 : exe, "cstrike_linux64");
 }
 
 bool plat_disabled()
@@ -182,8 +187,14 @@ bool plat_disabled()
 
 bool plat_claim()
 {
-    if (getenv("CURTIMEFIX_LOADED")) return false;
-    setenv("CURTIMEFIX_LOADED", "1", 1);
+    // marked with this exec's kernel random bytes: a re-exec (bhoptools installing an update) keeps the environment
+    uint64_t r = 0;
+    if (const void *p = (const void *)getauxval(AT_RANDOM)) memcpy(&r, p, sizeof r);
+    char tok[24];
+    snprintf(tok, sizeof tok, "%016llx", (unsigned long long)r);
+    const char *v = getenv("CURTIMEFIX_LOADED");
+    if (v && !strcmp(v, tok)) return false;
+    setenv("CURTIMEFIX_LOADED", tok, 1);
     return true;
 }
 
@@ -200,26 +211,4 @@ bool plat_thread(void *(*fn)(void *))
 }
 
 void plat_sleep_ms(int ms) { usleep(ms * 1000); }
-
-// CURTIMEFIX_ECHO_CONSOLE=1: copy the game console to stderr (headless test runs)
-typedef int (*Spew_t)(int type, const char *msg);
-static Spew_t g_old_spew;
-static int echo_spew(int type, const char *msg)
-{
-    fputs(msg, stderr);
-    return g_old_spew ? g_old_spew(type, msg) : 0;
-}
-
-void plat_echo_console()
-{
-    const char *e = getenv("CURTIMEFIX_ECHO_CONSOLE");
-    if (!e || strcmp(e, "1")) return;
-    std::string tier0 = module_path("/libtier0.so");
-    void *hd = tier0.empty() ? nullptr : dlopen(tier0.c_str(), RTLD_NOLOAD | RTLD_LAZY);
-    if (!hd) return;
-    auto get = (Spew_t (*)())dlsym(hd, "GetSpewOutputFunc");
-    auto set = (void (*)(Spew_t))dlsym(hd, "SpewOutputFunc");
-    if (get && set && get() != echo_spew) { g_old_spew = get(); set(echo_spew); }
-    dlclose(hd);
-}
 #endif
